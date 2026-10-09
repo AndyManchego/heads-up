@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Heads Up: bills moving through Congress</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1C2430;--muted:#5B6675;--paper:#E9EDF1;--card:#FFFFFF;--rule:#C9D1DA;--hi:#F5D547;--hi-ink:#3A3000;--pro:#1F6B4F;--con:#9A3B2A}
+@media (prefers-color-scheme: dark){:root{--ink:#E6EAF0;--muted:#9AA5B4;--paper:#11161D;--card:#1A212B;--rule:#2E3846;--hi:#C9A92A;--hi-ink:#1A1500;--pro:#6CC9A2;--con:#F09A84}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55}
+.wrap{max-width:820px;margin:0 auto;padding:32px 20px 60px}
+h1{font-size:clamp(28px,5vw,40px);font-weight:800;letter-spacing:-0.02em;line-height:1.1;margin:0 0 8px}
+.lede{color:var(--muted);margin:0 0 24px}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.chip{font:inherit;font-size:14px;font-weight:700;padding:7px 12px;border-radius:999px;border:1px solid var(--rule);background:var(--card);color:var(--ink);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--card);border-color:var(--ink)}
+input,select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:9px 10px}
+.search{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+.search input{flex:1 1 240px}
+:focus-visible{outline:3px solid var(--hi);outline-offset:2px}
+.count{font-size:14px;color:var(--muted);margin:0 0 10px}
+.bill{background:var(--card);border:1px solid var(--rule);border-radius:6px;margin-bottom:12px;overflow:hidden}
+.bill>button{all:unset;display:block;width:100%;box-sizing:border-box;padding:16px 20px;cursor:pointer}
+.bill>button:focus-visible{outline:3px solid var(--hi);outline-offset:-3px}
+.meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-bottom:6px}
+.stage{background:var(--hi);color:var(--hi-ink);font-weight:700;padding:2px 8px;border-radius:3px}
+.t{font-size:19px;font-weight:800;line-height:1.3;margin:0}
+.one{margin:6px 0 0;color:var(--muted)}
+.detail{border-top:1px solid var(--rule)}
+.sec{padding:14px 20px;border-bottom:1px solid var(--rule)}
+.sec:last-child{border-bottom:0}
+.sec h3{font-size:14px;font-weight:800;margin:0 0 6px}
+.sec p{margin:0} .sec ul{margin:0;padding-left:20px}
+.sides{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:560px){.sides{grid-template-columns:1fr}}
+.pro{color:var(--pro)} .con{color:var(--con)}
+blockquote{margin:6px 0;padding:4px 0 4px 12px;border-left:3px solid var(--rule);color:var(--muted);font-size:14px}
+.foot{font-size:13px;color:var(--muted);padding:12px 20px;background:var(--paper)}
+.foot a{color:var(--ink)}
+.empty{color:var(--muted);border:1px dashed var(--rule);border-radius:6px;padding:28px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Bills moving through Congress</h1>
+  <p class="lede">Every bill that recently passed the House or Senate, went to the President, or became law, explained in plain English. Updated every morning.</p>
+
+  <div class="controls" id="stages" role="group" aria-label="Filter by stage"></div>
+  <div class="search">
+    <input id="q" type="search" placeholder="Search bills, like &quot;veterans&quot; or &quot;tax&quot;" aria-label="Search bills">
+    <select id="topic" aria-label="Filter by topic"><option value="">All topics</option></select>
+  </div>
+  <p class="count" id="count" aria-live="polite"></p>
+  <div id="list"><div class="empty">Loading bills…</div></div>
+</div>
+
+<script>
+// ---- Fill these two in (Supabase > Project Settings > API) ----
+const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY";
+// ----------------------------------------------------------------
+
+const STAGES = ["All", "Became law", "Sent to President", "Passed Senate", "Passed House", "Scheduled for vote", "Vetoed"];
+let bills = [], stage = "All";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const list = a => Array.isArray(a) && a.length ? "<ul>" + a.map(x => `<li>${esc(x)}</li>`).join("") + "</ul>" : "<p>Not stated in the bill.</p>";
+
+$("stages").innerHTML = STAGES.map(s => `<button class="chip" aria-pressed="${s === "All"}" data-s="${esc(s)}">${esc(s)}</button>`).join("");
+$("stages").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  stage = b.dataset.s;
+  document.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", c === b));
+  draw();
+};
+$("q").oninput = draw; $("topic").onchange = draw;
+
+async function load(){
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/bills?select=*&order=latest_action_date.desc&limit=500`,
+      { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } });
+    if (!r.ok) throw new Error(r.status);
+    bills = await r.json();
+    const topics = [...new Set(bills.flatMap(b => b.summary?.topics || []))].sort();
+    $("topic").innerHTML += topics.map(t => `<option>${esc(t)}</option>`).join("");
+    draw();
+  } catch (e) {
+    $("list").innerHTML = '<div class="empty">Bills couldn\'t load. Check the Supabase URL and key at the top of this file.</div>';
+  }
+}
+
+function draw(){
+  const q = $("q").value.trim().toLowerCase(), topic = $("topic").value;
+  const shown = bills.filter(b =>
+    (stage === "All" || b.stage === stage) &&
+    (!topic || (b.summary?.topics || []).includes(topic)) &&
+    (!q || JSON.stringify([b.title, b.summary]).toLowerCase().includes(q)));
+  $("count").textContent = `${shown.length} bill${shown.length === 1 ? "" : "s"}`;
+  $("list").innerHTML = shown.length ? shown.map(card).join("") : '<div class="empty">No bills match. Try another filter.</div>';
+}
+
+function card(b, i){
+  const s = b.summary || {};
+  const label = `${b.bill_type === "HR" ? "H.R." : b.bill_type === "S" ? "S." : b.bill_type} ${b.number}`;
+  const receipts = (s.receipts || []).map(x => `<blockquote><b>${esc(x.section)}:</b> “${esc(x.quote)}”</blockquote>`).join("");
+  return `<article class="bill">
+    <button aria-expanded="false" onclick="toggle(this)">
+      <div class="meta"><span class="stage">${esc(b.stage)}</span><span>${esc(label)}</span><span>${esc(b.latest_action_date || "")}</span></div>
+      <h2 class="t">${esc(s.plain_title || b.title)}</h2>
+      <p class="one">${esc(s.one_line || "Summary coming once the bill text is published.")}</p>
+    </button>
+    <div class="detail" hidden>
+      ${b.summary ? `
+      <div class="sec"><h3>What changes</h3>${list(s.what_changes)}</div>
+      <div class="sec"><h3>Who it affects</h3>${list(s.who_affected)}</div>
+      <div class="sec"><h3>Money</h3><p>${esc(s.money)}</p></div>
+      <div class="sec"><h3>When</h3><p>${esc(s.timing)}</p></div>
+      <div class="sec sides"><div><h3 class="pro">Supporters say</h3>${list(s.supporters_say)}</div><div><h3 class="con">Opponents say</h3>${list(s.opponents_say)}</div></div>
+      ${receipts ? `<div class="sec"><h3>Straight from the bill</h3>${receipts}</div>` : ""}` : ""}
+      <div class="sec"><h3>Latest action</h3><p>${esc(b.latest_action)}</p></div>
+      <div class="foot">${esc(s.caveats || "")} AI summary of ${esc(b.text_version || "the bill")}. <a href="${esc(b.congress_url)}" target="_blank" rel="noopener">Read the official bill</a>.</div>
+    </div>
+  </article>`;
+}
+
+function toggle(btn){
+  const d = btn.nextElementSibling, open = d.hidden;
+  d.hidden = !open; btn.setAttribute("aria-expanded", open);
+}
+
+load();
+</script>
+</body>
+</html>

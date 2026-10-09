@@ -19,9 +19,9 @@ from html import unescape
 import anthropic
 import requests
 
-CONGRESS_API_KEY = os.environ["CONGRESS_API_KEY"]
-SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
-SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+CONGRESS_API_KEY = os.environ["CONGRESS_API_KEY"].strip()
+SUPABASE_URL = os.environ["SUPABASE_URL"].strip().rstrip("/")
+SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"].strip()
 LOOKBACK_DAYS = int(os.environ.get("LOOKBACK_DAYS", "2"))
 MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-5-5")
 MAX_SUMMARIES = int(os.environ.get("MAX_SUMMARIES", "40"))   # cost safety cap per run
@@ -40,7 +40,7 @@ STAGES = [
     ("Scheduled for vote",  r"placed on the union calendar|placed on the house calendar|placed on senate legislative calendar"),
 ]
 
-claude = anthropic.Anthropic()
+claude = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"].strip())
 sb_headers = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
